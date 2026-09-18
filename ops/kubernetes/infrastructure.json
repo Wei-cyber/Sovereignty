@@ -1,0 +1,429 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Namespace",
+      "metadata": {
+        "name": "relay",
+        "labels": {
+          "app.kubernetes.io/part-of": "relay-workspace"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "relay-config",
+        "namespace": "relay"
+      },
+      "data": {
+        "APP_ENV": "development",
+        "MODEL_PROVIDER": "openai",
+        "SEARXNG_URL": "http://search:8080",
+        "GMAIL_MCP_URL": "http://gmail-mcp:8101/mcp",
+        "DRIVE_MCP_URL": "http://drive-mcp:8102/mcp",
+        "CHAT_MODEL": "gpt-5.6-luna",
+        "GRADER_MODEL": "gpt-5.6-terra",
+        "EMBEDDING_PROVIDER": "local",
+        "EMBEDDING_MODEL": "BAAI/bge-small-en-v1.5",
+        "EMBEDDING_DIMENSIONS": "384",
+        "EMBEDDING_MODEL_DIR": "/app/models/bge-small-en-v1.5",
+        "ANSWER_REASONING_EFFORT": "low",
+        "AGENT_REASONING_EFFORT": "medium",
+        "GRADER_REASONING_EFFORT": "medium",
+        "MODEL_MAX_OUTPUT_TOKENS": "4096",
+        "PROVIDER_TIMEOUT_SECONDS": "45",
+        "GRADER_CALIBRATION_FILE": "/data/grader-calibration.json",
+        "APP_ORIGIN": "http://localhost:8088",
+        "COOKIE_SECURE": "false",
+        "JOB_MODE": "celery",
+        "REDIS_URL": "redis://redis:6379/0",
+        "DATA_DIR": "/data",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "TRACE_RETENTION_DAYS": "30",
+        "MAX_JOB_ATTEMPTS": "3",
+        "BOOTSTRAP_EMAIL": "admin@example.test"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "relay-postgres-init",
+        "namespace": "relay"
+      },
+      "data": {
+        "10-relay-role.sh": "#!/usr/bin/env sh\nset -eu\npsql --username \"$POSTGRES_USER\" --dbname \"$POSTGRES_DB\" --set ON_ERROR_STOP=1 --set app_password=\"$POSTGRES_APP_PASSWORD\" <<'SQL'\nCREATE ROLE relay_app LOGIN PASSWORD :'app_password';\nGRANT CONNECT ON DATABASE relay TO relay_app;\nGRANT USAGE ON SCHEMA public TO relay_app;\nALTER DEFAULT PRIVILEGES FOR ROLE relay IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO relay_app;\nALTER DEFAULT PRIVILEGES FOR ROLE relay IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO relay_app;\nSQL\n"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "relay-postgres",
+        "namespace": "relay"
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "10Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "relay-redis",
+        "namespace": "relay"
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "2Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+        "name": "relay-documents",
+        "namespace": "relay"
+      },
+      "spec": {
+        "accessModes": [
+          "ReadWriteOnce"
+        ],
+        "resources": {
+          "requests": {
+            "storage": "10Gi"
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "db",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "db"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 5432,
+            "targetPort": 5432
+          }
+        ],
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "redis",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "redis"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 6379,
+            "targetPort": 6379
+          }
+        ],
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "db",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "db"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "db"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 999,
+              "runAsGroup": 999,
+              "fsGroup": 999,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "postgres",
+                "image": "pgvector/pgvector:pg17",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "POSTGRES_USER",
+                    "value": "relay"
+                  },
+                  {
+                    "name": "POSTGRES_DB",
+                    "value": "relay"
+                  },
+                  {
+                    "name": "PGDATA",
+                    "value": "/var/lib/postgresql/data/pgdata"
+                  },
+                  {
+                    "name": "POSTGRES_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "admin-password"
+                      }
+                    }
+                  },
+                  {
+                    "name": "POSTGRES_APP_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "application-password"
+                      }
+                    }
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 5432,
+                    "name": "postgres"
+                  }
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "database",
+                    "mountPath": "/var/lib/postgresql/data"
+                  },
+                  {
+                    "name": "init",
+                    "mountPath": "/docker-entrypoint-initdb.d",
+                    "readOnly": true
+                  }
+                ],
+                "readinessProbe": {
+                  "exec": {
+                    "command": [
+                      "pg_isready",
+                      "-U",
+                      "relay",
+                      "-d",
+                      "relay"
+                    ]
+                  },
+                  "periodSeconds": 5
+                },
+                "startupProbe": {
+                  "exec": {
+                    "command": [
+                      "pg_isready",
+                      "-U",
+                      "relay",
+                      "-d",
+                      "relay"
+                    ]
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "database",
+                "persistentVolumeClaim": {
+                  "claimName": "relay-postgres"
+                }
+              },
+              {
+                "name": "init",
+                "configMap": {
+                  "name": "relay-postgres-init",
+                  "defaultMode": 365
+                }
+              }
+            ]
+          }
+        },
+        "serviceName": "db"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "redis",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "redis"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "redis"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 999,
+              "runAsGroup": 999,
+              "fsGroup": 999,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "redis",
+                "image": "redis:7-alpine",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "command": [
+                  "redis-server",
+                  "--appendonly",
+                  "yes",
+                  "--dir",
+                  "/data"
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "redis",
+                    "mountPath": "/data"
+                  }
+                ],
+                "readinessProbe": {
+                  "exec": {
+                    "command": [
+                      "redis-cli",
+                      "ping"
+                    ]
+                  },
+                  "periodSeconds": 5
+                },
+                "livenessProbe": {
+                  "exec": {
+                    "command": [
+                      "redis-cli",
+                      "ping"
+                    ]
+                  },
+                  "periodSeconds": 15,
+                  "initialDelaySeconds": 15
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "redis",
+                "persistentVolumeClaim": {
+                  "claimName": "relay-redis"
+                }
+              }
+            ]
+          }
+        },
+        "serviceName": "redis"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "relay-search-config",
+        "namespace": "relay"
+      },
+      "data": {
+        "settings.yml": "use_default_settings:\n  engines:\n    keep_only: [duckduckgo, bing, wikipedia]\ngeneral:\n  debug: false\nserver:\n  bind_address: \"0.0.0.0\"\n  port: 8080\n  limiter: false\n  public_instance: false\n  image_proxy: false\nsearch:\n  formats: [html, json]\n  safe_search: 1\noutgoing:\n  request_timeout: 6.0\n  max_request_timeout: 8.0\n"
+      }
+    }
+  ]
+}

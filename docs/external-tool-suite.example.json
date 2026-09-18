@@ -1,0 +1,28 @@
+{
+  "name": "External tools — example cases awaiting your review",
+  "cases": [
+    {
+      "id": "mail-evidence-example",
+      "question": "What color is the test project flag?",
+      "reference_answer": "The test project flag is blue.",
+      "source_document_ids": ["fixture-mail-1"],
+      "fixture_version": "example-fixtures-v1",
+      "expected_tools": ["gmail_search"],
+      "tool_fixtures": [{
+        "tool": "gmail_search",
+        "arguments": {"query": "test project flag"},
+        "sources": [{"chunk_id": "fixture-chunk-1", "document_id": "fixture-mail-1", "document_name": "Example test message", "document_version": 1, "location": "Fixture message", "kind": "gmail", "text": "The test project flag is blue."}]
+      }]
+    },
+    {
+      "id": "missing-mail-evidence",
+      "question": "What is the private project launch date?",
+      "reference_answer": "",
+      "expected_abstention": true,
+      "category": "unanswerable",
+      "fixture_version": "example-fixtures-v1",
+      "expected_tools": ["gmail_search"],
+      "tool_fixtures": [{"tool": "gmail_search", "arguments": {"query": "private project launch date"}, "sources": []}]
+    }
+  ]
+}

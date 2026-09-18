@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set ON_ERROR_STOP=1 --set app_password="$POSTGRES_APP_PASSWORD" <<'SQL'
+CREATE ROLE relay_app LOGIN PASSWORD :'app_password';
+GRANT CONNECT ON DATABASE relay TO relay_app;
+GRANT USAGE ON SCHEMA public TO relay_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE relay IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO relay_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE relay IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO relay_app;
+SQL

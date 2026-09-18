@@ -1,0 +1,134 @@
+name: relay-workspace
+
+x-backend: &backend
+  image: relay-workspace-backend:local
+  build: .
+  env_file: ${RELAY_ENV_FILE:-.env}
+  environment: &backend-env
+    DATABASE_URL: postgresql+psycopg://relay_app:${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}@db:5432/relay
+    REDIS_URL: redis://redis:6379/0
+    DATA_DIR: /data
+    JOB_MODE: celery
+    SEARXNG_URL: http://search:8080
+    GMAIL_MCP_URL: http://gmail-mcp:8101/mcp
+    DRIVE_MCP_URL: http://drive-mcp:8102/mcp
+  volumes:
+    - documents:/data
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  mem_limit: 2g
+  cpus: 2
+
+services:
+  gmail-mcp:
+    <<: *backend
+    command: ["python", "-m", "backend.mcp_servers", "gmail"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8101/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  drive-mcp:
+    <<: *backend
+    command: ["python", "-m", "backend.mcp_servers", "drive"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8102/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  search:
+    image: searxng/searxng@sha256:d0a4ca04e68c6d57fe45509ad5a6b10c890350724762ade3abea5363571aa29a
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Set a random SEARXNG_SECRET}
+    volumes:
+      - ./ops/searxng-settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    security_opt: ["no-new-privileges:true"]
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: relay
+      POSTGRES_USER: relay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./ops/postgres-init.sh:/docker-entrypoint-initdb.d/10-relay-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay -d relay"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql+psycopg://relay:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/relay
+    command: ["python", "-m", "backend.manage", "migrate"]
+    restart: "no"
+  api:
+    <<: *backend
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "backend.jobs:celery_app", "worker", "--loglevel=warning", "--concurrency=5"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  scheduler:
+    <<: *backend
+    command: ["celery", "-A", "backend.jobs:celery_app", "beat", "--loglevel=warning", "--schedule=/data/celerybeat-schedule"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  web:
+    build: ./frontend
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  postgres:
+  documents:
+  redis:

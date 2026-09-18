@@ -1,0 +1,875 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "api",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "backend"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 8000,
+            "targetPort": 8000
+          }
+        ],
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "web",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "web"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 8080,
+            "targetPort": 8080,
+            "nodePort": 30080
+          }
+        ],
+        "type": "NodePort"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "backend",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "backend"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "backend"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "runAsGroup": 10001,
+              "fsGroup": 10001,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "api",
+                "image": "relay-workspace-backend:k8s-v4.2",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "1Gi"
+                  }
+                },
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "relay-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "relay-integrations"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "application-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-openai",
+                        "key": "api-key"
+                      }
+                    }
+                  }
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "documents",
+                    "mountPath": "/data"
+                  }
+                ],
+                "ports": [
+                  {
+                    "name": "http",
+                    "containerPort": 8000
+                  }
+                ],
+                "startupProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8000
+                  },
+                  "periodSeconds": 5,
+                  "failureThreshold": 60,
+                  "timeoutSeconds": 5
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8000
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 5
+                },
+                "livenessProbe": {
+                  "tcpSocket": {
+                    "port": 8000
+                  },
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 3
+                }
+              },
+              {
+                "name": "worker",
+                "image": "relay-workspace-backend:k8s-v4.2",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "250m",
+                    "memory": "512Mi"
+                  },
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "2Gi"
+                  }
+                },
+                "command": [
+                  "celery",
+                  "-A",
+                  "backend.jobs:celery_app",
+                  "worker",
+                  "--loglevel=warning",
+                  "--concurrency=2"
+                ],
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "relay-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "relay-integrations"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "application-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-openai",
+                        "key": "api-key"
+                      }
+                    }
+                  }
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "documents",
+                    "mountPath": "/data"
+                  }
+                ]
+              },
+              {
+                "name": "scheduler",
+                "image": "relay-workspace-backend:k8s-v4.2",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "command": [
+                  "celery",
+                  "-A",
+                  "backend.jobs:celery_app",
+                  "beat",
+                  "--loglevel=warning",
+                  "--schedule=/data/celerybeat-schedule"
+                ],
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "relay-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "relay-integrations"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "application-url"
+                      }
+                    }
+                  },
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-openai",
+                        "key": "api-key"
+                      }
+                    }
+                  }
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "documents",
+                    "mountPath": "/data"
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "documents",
+                "persistentVolumeClaim": {
+                  "claimName": "relay-documents"
+                }
+              }
+            ]
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "web",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "web"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "web"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 101,
+              "runAsGroup": 101,
+              "fsGroup": 101,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "web",
+                "image": "relay-workspace-web:k8s-v4.1",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": 8080
+                  },
+                  "periodSeconds": 5,
+                  "timeoutSeconds": 5
+                },
+                "livenessProbe": {
+                  "tcpSocket": {
+                    "port": 8080
+                  },
+                  "periodSeconds": 15
+                }
+              }
+            ],
+            "volumes": []
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "gmail-mcp",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "gmail-mcp"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 8101,
+            "targetPort": 8101
+          }
+        ],
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "gmail-mcp",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "gmail-mcp"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "gmail-mcp"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "runAsGroup": 10001,
+              "fsGroup": 10001,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "gmail-mcp",
+                "image": "relay-workspace-backend:k8s-v4.2",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "command": [
+                  "python",
+                  "-m",
+                  "backend.mcp_servers",
+                  "gmail"
+                ],
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "relay-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "relay-integrations"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "application-url"
+                      }
+                    }
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 8101
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8101
+                  },
+                  "periodSeconds": 10
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8101
+                  },
+                  "periodSeconds": 20
+                }
+              }
+            ],
+            "volumes": []
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "drive-mcp",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "drive-mcp"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 8102,
+            "targetPort": 8102
+          }
+        ],
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "drive-mcp",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "drive-mcp"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "drive-mcp"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 10001,
+              "runAsGroup": 10001,
+              "fsGroup": 10001,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "drive-mcp",
+                "image": "relay-workspace-backend:k8s-v4.2",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "command": [
+                  "python",
+                  "-m",
+                  "backend.mcp_servers",
+                  "drive"
+                ],
+                "envFrom": [
+                  {
+                    "configMapRef": {
+                      "name": "relay-config"
+                    }
+                  },
+                  {
+                    "secretRef": {
+                      "name": "relay-integrations"
+                    }
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "DATABASE_URL",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-database",
+                        "key": "application-url"
+                      }
+                    }
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 8102
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8102
+                  },
+                  "periodSeconds": 10
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/health",
+                    "port": 8102
+                  },
+                  "periodSeconds": 20
+                }
+              }
+            ],
+            "volumes": []
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "search",
+        "namespace": "relay"
+      },
+      "spec": {
+        "selector": {
+          "app": "relay",
+          "component": "search"
+        },
+        "ports": [
+          {
+            "name": "service",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "type": "ClusterIP"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "search",
+        "namespace": "relay"
+      },
+      "spec": {
+        "replicas": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "relay",
+            "component": "search"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "relay",
+              "component": "search"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 977,
+              "runAsGroup": 977,
+              "fsGroup": 977,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "terminationGracePeriodSeconds": 90,
+            "containers": [
+              {
+                "name": "search",
+                "image": "searxng/searxng@sha256:d0a4ca04e68c6d57fe45509ad5a6b10c890350724762ade3abea5363571aa29a",
+                "imagePullPolicy": "IfNotPresent",
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "resources": {
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "1",
+                    "memory": "512Mi"
+                  }
+                },
+                "env": [
+                  {
+                    "name": "SEARXNG_SECRET",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "relay-integrations",
+                        "key": "SEARXNG_SECRET"
+                      }
+                    }
+                  }
+                ],
+                "ports": [
+                  {
+                    "containerPort": 8080
+                  }
+                ],
+                "volumeMounts": [
+                  {
+                    "name": "settings",
+                    "mountPath": "/etc/searxng/settings.yml",
+                    "subPath": "settings.yml",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "cache",
+                    "mountPath": "/var/cache/searxng"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 10
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/healthz",
+                    "port": 8080
+                  },
+                  "initialDelaySeconds": 30,
+                  "periodSeconds": 20
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "settings",
+                "configMap": {
+                  "name": "relay-search-config"
+                }
+              },
+              {
+                "name": "cache",
+                "emptyDir": {}
+              }
+            ]
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        }
+      }
+    },
+    {
+      "apiVersion": "networking.k8s.io/v1",
+      "kind": "NetworkPolicy",
+      "metadata": {
+        "name": "private-tool-services",
+        "namespace": "relay"
+      },
+      "spec": {
+        "podSelector": {
+          "matchExpressions": [
+            {
+              "key": "component",
+              "operator": "In",
+              "values": [
+                "gmail-mcp",
+                "drive-mcp",
+                "search"
+              ]
+            }
+          ]
+        },
+        "policyTypes": [
+          "Ingress"
+        ],
+        "ingress": [
+          {
+            "from": [
+              {
+                "podSelector": {
+                  "matchLabels": {
+                    "component": "backend"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
