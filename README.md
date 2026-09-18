@@ -6,7 +6,7 @@
 
 1. Open **http://localhost:8088** for local Kubernetes and sign in with your administrator-created account.
 2. Open **Agents → Create agent**. Set its name, instructions, conversation starters, workspace documents and permitted tools. Save and Preview, or select it in Assistant. Private agents show **Not reviewed** and are usable immediately by their owner.
-3. Open **Connections** for your own Gmail and Google Drive accounts. An operator must first complete [Google setup](docs/GOOGLE_CONNECTIONS.md). Drive's **Choose files** selects individual Google Docs, text PDFs, TXT and Markdown files.
+3. Open **Connections** for your own Gmail and Google Drive accounts. An operator must first complete [Google setup](docs/GOOGLE_CONNECTIONS.md). Drive's **Choose files** selects individual Google Docs, text PDFs, TXT and Markdown files (Available soon).
 4. Ask questions in **Assistant**. Open citation chips to inspect exact evidence and retrieval timestamps. Private Google evidence and detailed runs belong to the executing user. Disconnecting an account or removing a selected file invalidates access.
 5. Ask an agent to prepare an email. Edit the recipients, subject and body in Relay, then explicitly click **Save draft to Gmail** to create an unsent draft. Relay cannot send. If a save is uncertain, use **Check draft save** to reconcile the same operation instead of creating another copy.
 6. Choose **Request sharing** to submit an immutable candidate in **Workflows**. Your own agent/conversations remain private; colleagues use their own connections with an approved shared agent.
