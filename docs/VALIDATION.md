@@ -2,6 +2,24 @@
 
 Status: **implemented MVP, locally validated; production release checks remain open.**
 
+## Retrieval benchmark — 16 November 2026
+
+`uv run python -m tests.benchmark` was run three times at commit `8ce7e02` against a dedicated `relay_benchmark` database: 10,000 synthetic chunks, five concurrent users, ten warm-up requests before each measurement.
+
+| Run | Requests | p50 | p95 | Max |
+|---|---|---|---|---|
+| 1 | 100 | 26.6 ms | 36.1 ms | 65.5 ms |
+| 2 | 1,000 | 26.7 ms | 34.0 ms | 202.7 ms |
+| 3 | 1,000 | 24.3 ms | 33.4 ms | 186.3 ms |
+
+- **Result:** retrieval p95 was 33–36 ms in every run, below the one-second target. Runs 2 and 3 each started from a dropped and recreated database with all five migrations applied.
+- **Environment:** PostgreSQL 17.11 from `pgvector/pgvector:pg17` in Docker Desktop on a single 16-logical-CPU Windows 11 machine. The Python client ran natively on the same machine and connected over localhost. This is a developer workstation, not the intended enterprise cluster.
+- **Scope:** the timing covers `retrieve()` only: the membership check, the HNSW semantic query, the full-text query, and result fusion. Query embedding time and model generation are excluded (`embedding_time_included: false`, `full_answer_latency_measured: false`).
+- **Data:** chunk text and vectors come from the deterministic test provider, not the BGE model. The chunks are short, near-identical sentences in one workspace and one document. These timings do not establish retrieval quality, and latency on real documents or with several workspaces may differ.
+- **Not covered:** more than five concurrent users, corpora above 10,000 chunks, concurrent ingestion, and full-answer latency with the live provider.
+
+The JSON reports were written to `artifacts/`, which is git-ignored; the figures above are the record.
+
 ## Guided setup update — 12 September 2026
 
 - Full deterministic Python run: **50 passed, 2 skipped**. The skips require a live provider and the dedicated PostgreSQL environment. After adding the upgrade-manifest check, the focused calibration/Kubernetes run passed **12 tests**.
@@ -45,7 +63,7 @@ The worker recovery test simulates a crash between trace and checkpoint commits.
 1. **Target-environment validation:** Docker's startup error was resolved, and the local Kubernetes deployment, PostgreSQL migrations, and restricted application role are now verified. The complete PostgreSQL CI test path, Compose-specific deployment, and the intended enterprise cluster still need their own validation.
 2. **Live provider:** Supply the deployment's API key and model configuration. Run the opt-in live-provider test, a human-label grader calibration, and representative workflow evaluations. No live model test or paid model call was performed here.
 3. **Human-reviewed examples:** The demo includes 60 generated fictional examples: 50 answerable, 5 unanswerable, and 5 adversarial. They are explicitly awaiting human review. At least 50 human-reviewed examples are still required by the release plan.
-4. **Load measurement:** Run the supplied five-concurrent-user benchmark over 10,000 PostgreSQL chunks. Retrieval p95 below one second is a target, not a measured result here. Record full-answer latency separately with the live provider.
+4. **Load measurement:** The five-concurrent-user benchmark over 10,000 PostgreSQL chunks was run on 16 November 2026 and measured retrieval p95 at 33–36 ms on a developer workstation with synthetic data (see the retrieval benchmark section above). Still open: repeat it on the target environment, measure with real BGE-embedded documents, and record full-answer latency separately with the live provider.
 5. **Recovery drill:** Create a real backup, restore into a new isolated deployment, and verify documents, citations, an interrupted run, permissions, and audit history. A local application-Pod restart is a narrower persistence check and does not establish backup recoverability.
 6. **Deployment review:** Verify enterprise HTTPS/cookies, secret provisioning, log access, storage quotas, monitoring, and retention against the actual environment. CI configuration is included; no remote CI run was triggered.
 
